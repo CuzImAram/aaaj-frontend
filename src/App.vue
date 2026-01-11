@@ -585,8 +585,8 @@ const downloadJson = (data: any, filename: string) => {
         
         <!-- RESULTS VIEW -->
         <div v-else class="p-6 md:p-8">
-            <div class="flex items-center justify-between mb-8">
-                <button @click="goBack" class="text-sm text-gray-500 hover:text-indigo-600 flex items-center transition-colors">
+            <div class="relative flex items-center justify-center mb-8">
+                <button @click="goBack" class="absolute left-0 text-sm text-gray-500 hover:text-indigo-600 flex items-center transition-colors">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd" />
                     </svg>
@@ -657,12 +657,12 @@ const downloadJson = (data: any, filename: string) => {
 
             <!-- COMPARISON RESULT -->
             <div v-if="loadingA || loadingB || loadingComparison || comparisonResult" class="mt-12 pt-8 border-t border-gray-200">
-                <div class="flex items-center justify-between mb-8">
+                <div class="relative flex items-center justify-center mb-8">
                      <h2 class="text-2xl font-bold text-gray-900">Head-to-Head Comparison</h2>
                      <button 
                         v-if="comparisonResult"
                         @click="downloadJson(comparisonResult, 'comparison_result.json')"
-                        class="text-sm flex items-center text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                        class="absolute right-0 text-sm flex items-center text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
                     >
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                             <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
