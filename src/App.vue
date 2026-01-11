@@ -302,11 +302,23 @@ const goBack = () => {
     view.value = 'input';
 };
 
+const downloadJson = (data: any, filename: string) => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
 </script>
 
 <template>
   <div class="min-h-screen bg-gray-100 py-10 px-4 sm:px-6 lg:px-8 text-gray-800 font-sans">
-    <div class="max-w-5xl mx-auto">
+    <div class="max-w-7xl mx-auto">
       <header class="mb-10 text-center">
         <h1 class="text-4xl font-extrabold text-gray-900 tracking-tight mb-2">Agent Response Comparator</h1>
         <p class="text-lg text-gray-600">Compare two responses against a query and reference.</p>
@@ -520,7 +532,7 @@ const goBack = () => {
         <!-- RESULTS VIEW -->
         <div v-else class="p-6 md:p-8">
             <div class="flex items-center justify-between mb-8">
-                <button @click="goBack" class="text-sm text-gray-500 hover:text-indigo-600 flex items-center">
+                <button @click="goBack" class="text-sm text-gray-500 hover:text-indigo-600 flex items-center transition-colors">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
                         <path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd" />
                     </svg>
@@ -531,8 +543,21 @@ const goBack = () => {
             
             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <!-- Result A -->
-                <div class="bg-gray-50 rounded-xl p-6 border border-gray-200">
-                    <h3 class="text-lg font-bold text-indigo-900 mb-4 border-b border-gray-200 pb-2">Response A</h3>
+                <div class="bg-gray-50 rounded-xl p-6 border border-gray-200 shadow-sm">
+                    <div class="flex justify-between items-center mb-4 border-b border-gray-200 pb-2">
+                        <h3 class="text-lg font-bold text-indigo-900">Response A</h3>
+                        <button 
+                            v-if="resultA"
+                            @click="downloadJson(resultA, 'analysis_result_A.json')"
+                            class="text-xs flex items-center text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                            title="Download JSON"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                            Download JSON
+                        </button>
+                    </div>
                     
                     <div v-if="loadingA" class="py-10 text-center">
                         <div class="inline-block w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
@@ -547,8 +572,21 @@ const goBack = () => {
                 </div>
 
                 <!-- Result B -->
-                <div class="bg-gray-50 rounded-xl p-6 border border-gray-200">
-                    <h3 class="text-lg font-bold text-indigo-900 mb-4 border-b border-gray-200 pb-2">Response B</h3>
+                <div class="bg-gray-50 rounded-xl p-6 border border-gray-200 shadow-sm">
+                    <div class="flex justify-between items-center mb-4 border-b border-gray-200 pb-2">
+                        <h3 class="text-lg font-bold text-indigo-900">Response B</h3>
+                        <button 
+                            v-if="resultB"
+                            @click="downloadJson(resultB, 'analysis_result_B.json')"
+                            class="text-xs flex items-center text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                            title="Download JSON"
+                        >
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                            </svg>
+                            Download JSON
+                        </button>
+                    </div>
                     
                     <div v-if="loadingB" class="py-10 text-center">
                         <div class="inline-block w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
