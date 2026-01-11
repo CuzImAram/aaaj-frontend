@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
+import ResponseArea from './components/ResponseArea.vue';
+import Notification from './components/Notification.vue';
 
 // State
 const mode = ref<'manual' | 'json'>('manual');
@@ -16,6 +18,22 @@ const file2 = ref<File | null>(null);
 const errorMessage = ref('');
 const isDragging1 = ref(false);
 const isDragging2 = ref(false);
+
+// Notification State
+const notification = ref({
+    show: false,
+    type: 'info' as 'success' | 'error' | 'info',
+    title: '',
+    message: ''
+});
+
+const showNotification = (type: 'success' | 'error' | 'info', title: string, message: string) => {
+    notification.value = { show: true, type, title, message };
+    // Auto close after 5 seconds
+    setTimeout(() => {
+        notification.value.show = false;
+    }, 5000);
+};
 
 const handleFileUpload = async (event: Event, fileIndex: 1 | 2) => {
     errorMessage.value = '';
@@ -193,8 +211,38 @@ const removeReference = (index: number) => {
 };
 
 const submitComparison = () => {
+    // Validation: Check for invalid references in responses
+    const invalidRefs1 = findInvalidReferences(text1.value);
+    const invalidRefs2 = findInvalidReferences(text2.value);
+
+    if (invalidRefs1.length > 0 || invalidRefs2.length > 0) {
+        let msg = 'Cannot submit comparison:\n';
+        if (invalidRefs1.length > 0) {
+            msg += `Response A contains invalid references: ${invalidRefs1.join(', ')}\n`;
+        }
+        if (invalidRefs2.length > 0) {
+            msg += `Response B contains invalid references: ${invalidRefs2.join(', ')}\n`;
+        }
+        showNotification('error', 'Validation Failed', msg);
+        return;
+    }
+
     // Submission logic here
     console.log('Submitting comparison:', { query: query.value, referenceTexts: referenceTexts.value, text1: text1.value, text2: text2.value });
+    showNotification('success', 'Success', 'Comparison submitted successfully!');
+};
+
+const findInvalidReferences = (text: string): string[] => {
+    const matches = text.matchAll(/\[(\d+)\]/g);
+    const invalid: string[] = [];
+    for (const match of matches) {
+        const index = parseInt(match[1], 10) - 1;
+        if (index < 0 || index >= referenceTexts.value.length) {
+            const fullMatch = match[0];
+            if (fullMatch) invalid.push(fullMatch);
+        }
+    }
+    return [...new Set(invalid)]; // Unique
 };
 
 </script>
@@ -379,24 +427,18 @@ const submitComparison = () => {
                     <div class="border-t border-gray-100 pt-8">
                          <h3 class="text-lg font-medium text-gray-900 mb-4">Responses to Compare</h3>
                          <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">Raw Text (Response A)</label>
-                                <textarea
-                                    v-model="text1"
-                                    rows="12"
-                                    class="w-full rounded-md border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 text-gray-600 leading-relaxed"
-                                    placeholder="Paste response A here..."
-                                ></textarea>
-                            </div>
-                            <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">Raw Text (Response B)</label>
-                                <textarea
-                                    v-model="text2"
-                                    rows="12"
-                                    class="w-full rounded-md border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 text-gray-600 leading-relaxed"
-                                    placeholder="Paste response B here..."
-                                ></textarea>
-                            </div>
+                            <ResponseArea
+                                label="Raw Text (Response A)"
+                                v-model="text1"
+                                :references="referenceTexts"
+                                placeholder="Paste response A here..."
+                            />
+                            <ResponseArea
+                                label="Raw Text (Response B)"
+                                v-model="text2"
+                                :references="referenceTexts"
+                                placeholder="Paste response B here..."
+                            />
                         </div>
                     </div>
 
@@ -413,6 +455,13 @@ const submitComparison = () => {
         </div>
       </div>
     </div>
+    <Notification 
+        :show="notification.show" 
+        :type="notification.type" 
+        :title="notification.title" 
+        :message="notification.message" 
+        @close="notification.show = false" 
+    />
   </div>
 </template>
 
