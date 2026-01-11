@@ -3,8 +3,16 @@ import { ref } from 'vue';
 import ResponseArea from './components/ResponseArea.vue';
 import Notification from './components/Notification.vue';
 
+import JudgmentDisplay from './components/JudgmentDisplay.vue';
+
 // State
 const mode = ref<'manual' | 'json'>('manual');
+const view = ref<'input' | 'results'>('input'); // View state
+const loadingA = ref(false);
+const loadingB = ref(false);
+const resultA = ref<any>(null);
+const resultB = ref<any>(null);
+
 const query = ref('');
 const referenceTexts = ref<string[]>(['', '', '']); // Default 3 empty references
 const isEditMode = ref(false);
@@ -102,7 +110,7 @@ const processFiles = async () => {
             throw new Error('query is not the same');
         }
 
-        // Deep comparison for reference texts
+        // Deep comparison for references
         const ref1 = JSON.stringify(json1.references_texts);
         const ref2 = JSON.stringify(json2.references_texts);
 
@@ -162,8 +170,7 @@ const toggleEditMode = () => {
             const content = rawReferenceText.value.trim();
             if (content) {
                  // Split by the separator ", followed by newline
-                 // This handles multi-line references as requested
-                 // We use a regex to be safe about whitespace: quote, optional space, comma, optional space, newline
+                 // Multi-line references
                  const rawItems = content.split(/",\s*\n/);
                  
                  const parsed: string[] = [];
@@ -177,8 +184,7 @@ const toggleEditMode = () => {
                          item = item.substring(1);
                      }
                      
-                     // Clean up end quote (only for the very last item if it didn't have a comma)
-                     // The split consumes the ", for intermediate items
+                     // Clean up end quote
                      if (i === rawItems.length - 1 && item.endsWith('"')) {
                          item = item.substring(0, item.length - 1);
                      }
@@ -198,7 +204,6 @@ const toggleEditMode = () => {
         }
     } else {
         // Switching from List View to Edit Mode -> Format
-        // User requested NO escaping of internal quotes: "do not mark the raw text with \""
         rawReferenceText.value = referenceTexts.value
             .map(r => `"${r}"`) 
             .join(',\n');
@@ -231,9 +236,53 @@ const submitComparison = () => {
         return;
     }
 
-    // Submission logic here
-    console.log('Submitting comparison:', { query: query.value, referenceTexts: referenceTexts.value, text1: text1.value, text2: text2.value });
-    showNotification('success', 'Success', 'Comparison submitted successfully!');
+    // Switch view and start processing
+    view.value = 'results';
+    resultA.value = null;
+    resultB.value = null;
+    loadingA.value = true;
+    loadingB.value = true;
+
+    // Trigger parallel requests
+    analyzeResponse(text1.value, 'A');
+    analyzeResponse(text2.value, 'B');
+};
+
+const analyzeResponse = async (rawText: string, target: 'A' | 'B') => {
+    const payload = {
+        query: query.value,
+        references_texts: referenceTexts.value,
+        raw_text: rawText
+    };
+
+    try {
+        const response = await fetch('http://localhost:5678/webhook/get-data-for-agents', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`API Error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        // Backend returns a list, we expect one item for this single-shot request or the first one
+        const result = Array.isArray(data) ? data[0] : data;
+
+        if (target === 'A') {
+            resultA.value = result;
+        } else {
+            resultB.value = result;
+        }
+    } catch (error: any) {
+        showNotification('error', `Analysis Failed (${target})`, error.message);
+    } finally {
+        if (target === 'A') loadingA.value = false;
+        else loadingB.value = false;
+    }
 };
 
 const findInvalidReferences = (text: string): string[] => {
@@ -249,6 +298,10 @@ const findInvalidReferences = (text: string): string[] => {
     return [...new Set(invalid)]; // Unique
 };
 
+const goBack = () => {
+    view.value = 'input';
+};
+
 </script>
 
 <template>
@@ -259,207 +312,258 @@ const findInvalidReferences = (text: string): string[] => {
         <p class="text-lg text-gray-600">Compare two responses against a query and reference.</p>
       </header>
 
-      <div class="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
-        <!-- Tabs -->
-        <div class="flex border-b border-gray-200">
-          <button
-            @click="mode = 'manual'"
-            class="flex-1 py-4 text-sm font-medium focus:outline-none transition-all duration-200"
-            :class="mode === 'manual' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-gray-50 text-gray-500 hover:text-gray-700 hover:bg-gray-100'"
-          >
-            Data View / Manual Entry
-          </button>
-          <button
-            @click="mode = 'json'"
-            class="flex-1 py-4 text-sm font-medium focus:outline-none transition-all duration-200"
-            :class="mode === 'json' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-gray-50 text-gray-500 hover:text-gray-700 hover:bg-gray-100'"
-          >
-            JSON Upload
-          </button>
-        </div>
+        <div class="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
+        
+        <!-- INPUT VIEW -->
+        <div v-if="view === 'input'">
+            <!-- Tabs -->
+            <div class="flex border-b border-gray-200">
+            <button
+                @click="mode = 'manual'"
+                class="flex-1 py-4 text-sm font-medium focus:outline-none transition-all duration-200"
+                :class="mode === 'manual' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-gray-50 text-gray-500 hover:text-gray-700 hover:bg-gray-100'"
+            >
+                Data View / Manual Entry
+            </button>
+            <button
+                @click="mode = 'json'"
+                class="flex-1 py-4 text-sm font-medium focus:outline-none transition-all duration-200"
+                :class="mode === 'json' ? 'bg-white text-indigo-600 border-b-2 border-indigo-600' : 'bg-gray-50 text-gray-500 hover:text-gray-700 hover:bg-gray-100'"
+            >
+                JSON Upload
+            </button>
+            </div>
 
-        <div class="p-6 md:p-8">
-            <transition name="fade" mode="out-in">
-                <!-- JSON INPUT MODE -->
-                <div v-if="mode === 'json'" key="json" class="max-w-xl mx-auto space-y-8 py-8">
-                    <div class="text-center">
-                        <h2 class="text-lg font-semibold text-gray-900">Upload Comparison Files</h2>
-                        <p class="text-sm text-gray-500">Select two JSON files to compare. They must share the same query and references.</p>
-                    </div>
-
-                    <div class="space-y-6">
-                        <div class="group relative">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">First JSON File</label>
-                            <div 
-                                class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md transition-colors"
-                                :class="isDragging1 ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400'"
-                                @dragover.prevent="isDragging1 = true"
-                                @dragleave.prevent="isDragging1 = false"
-                                @drop.prevent="(e) => handleDrop(e, 1)"
-                            >
-                                <div class="space-y-1 text-center">
-                                    <div class="flex text-sm text-gray-600 justify-center">
-                                        <label for="file-upload-1" class="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
-                                            <span>Upload a file</span>
-                                            <input id="file-upload-1" name="file-upload-1" type="file" accept=".json" class="sr-only" @change="(e) => handleFileUpload(e, 1)">
-                                        </label>
-                                        <p class="pl-1">or drag and drop</p>
-                                    </div>
-                                    <p class="text-xs text-gray-500">JSON up to 10MB</p>
-                                    <div v-if="file1" class="mt-2 flex items-center justify-center space-x-2">
-                                        <span class="text-sm font-semibold text-green-600">Selected: {{ file1.name }}</span>
-                                        <button @click="removeFile(1)" class="text-red-500 hover:text-red-700 focus:outline-none">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
+            <div class="p-6 md:p-8">
+                <transition name="fade" mode="out-in">
+                    <!-- JSON INPUT MODE -->
+                    <div v-if="mode === 'json'" key="json" class="max-w-xl mx-auto space-y-8 py-8">
+                        <div class="text-center">
+                            <h2 class="text-lg font-semibold text-gray-900">Upload Comparison Files</h2>
+                            <p class="text-sm text-gray-500">Select two JSON files to compare. They must share the same query and references.</p>
                         </div>
 
-                        <div class="group relative">
-                            <label class="block text-sm font-medium text-gray-700 mb-2">Second JSON File</label>
-                            <div 
-                                class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md transition-colors"
-                                :class="isDragging2 ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400'"
-                                @dragover.prevent="isDragging2 = true"
-                                @dragleave.prevent="isDragging2 = false"
-                                @drop.prevent="(e) => handleDrop(e, 2)"
-                            >
-                                <div class="space-y-1 text-center">
-                                    <div class="flex text-sm text-gray-600 justify-center">
-                                        <label for="file-upload-2" class="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
-                                            <span>Upload a file</span>
-                                            <input id="file-upload-2" name="file-upload-2" type="file" accept=".json" class="sr-only" @change="(e) => handleFileUpload(e, 2)">
-                                        </label>
-                                        <p class="pl-1">or drag and drop</p>
-                                    </div>
-                                    <p class="text-xs text-gray-500">JSON up to 10MB</p>
-                                    <div v-if="file2" class="mt-2 flex items-center justify-center space-x-2">
-                                        <span class="text-sm font-semibold text-green-600">Selected: {{ file2.name }}</span>
-                                        <button @click="removeFile(2)" class="text-red-500 hover:text-red-700 focus:outline-none">
-                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
-                                            </svg>
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div v-if="errorMessage" class="p-4 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm flex items-start">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
-                        </svg>
-                        <span>{{ errorMessage }}</span>
-                    </div>
-                </div>
-
-                <!-- MANUAL INPUT MODE -->
-                <div v-else key="manual" class="space-y-8">
-                    <div class="grid grid-cols-1 gap-6">
-                        <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Query</label>
-                            <textarea
-                                v-model="query"
-                                rows="3"
-                                class="w-full rounded-lg border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 transition-shadow"
-                                placeholder="Enter the user query..."
-                            ></textarea>
-                        </div>
-
-                        <div>
-                            <div class="flex justify-between items-center mb-2">
-                                <label class="block text-sm font-semibold text-gray-700">Reference Texts</label>
-                                <button 
-                                    @click="toggleEditMode" 
-                                    class="text-xs font-medium text-indigo-600 hover:text-indigo-800 focus:outline-none"
+                        <div class="space-y-6">
+                            <div class="group relative">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">First JSON File</label>
+                                <div 
+                                    class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md transition-colors"
+                                    :class="isDragging1 ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400'"
+                                    @dragover.prevent="isDragging1 = true"
+                                    @dragleave.prevent="isDragging1 = false"
+                                    @drop.prevent="(e) => handleDrop(e, 1)"
                                 >
-                                    {{ isEditMode ? 'Switch to List View' : 'Edit Raw Text' }}
-                                </button>
+                                    <div class="space-y-1 text-center">
+                                        <div class="flex text-sm text-gray-600 justify-center">
+                                            <label for="file-upload-1" class="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
+                                                <span>Upload a file</span>
+                                                <input id="file-upload-1" name="file-upload-1" type="file" accept=".json" class="sr-only" @change="(e) => handleFileUpload(e, 1)">
+                                            </label>
+                                            <p class="pl-1">or drag and drop</p>
+                                        </div>
+                                        <p class="text-xs text-gray-500">JSON up to 10MB</p>
+                                        <div v-if="file1" class="mt-2 flex items-center justify-center space-x-2">
+                                            <span class="text-sm font-semibold text-green-600">Selected: {{ file1.name }}</span>
+                                            <button @click="removeFile(1)" class="text-red-500 hover:text-red-700 focus:outline-none">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
-                            <!-- List View -->
-                            <div v-if="!isEditMode" class="space-y-3">
-                                <div v-for="(text, index) in referenceTexts" :key="index" :id="'ref-' + index" class="flex items-start space-x-3 transition-colors duration-500 rounded-lg p-1">
-                                    <span class="mt-2 text-xs font-mono text-gray-400 w-4 text-right">{{ index }}.</span>
-                                    <textarea
-                                        v-model="referenceTexts[index]"
-                                        rows="2"
-                                        class="flex-1 rounded-lg border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 transition-shadow"
-                                        placeholder="Enter reference text..."
-                                    ></textarea>
+                            <div class="group relative">
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Second JSON File</label>
+                                <div 
+                                    class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md transition-colors"
+                                    :class="isDragging2 ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400'"
+                                    @dragover.prevent="isDragging2 = true"
+                                    @dragleave.prevent="isDragging2 = false"
+                                    @drop.prevent="(e) => handleDrop(e, 2)"
+                                >
+                                    <div class="space-y-1 text-center">
+                                        <div class="flex text-sm text-gray-600 justify-center">
+                                            <label for="file-upload-2" class="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
+                                                <span>Upload a file</span>
+                                                <input id="file-upload-2" name="file-upload-2" type="file" accept=".json" class="sr-only" @change="(e) => handleFileUpload(e, 2)">
+                                            </label>
+                                            <p class="pl-1">or drag and drop</p>
+                                        </div>
+                                        <p class="text-xs text-gray-500">JSON up to 10MB</p>
+                                        <div v-if="file2" class="mt-2 flex items-center justify-center space-x-2">
+                                            <span class="text-sm font-semibold text-green-600">Selected: {{ file2.name }}</span>
+                                            <button @click="removeFile(2)" class="text-red-500 hover:text-red-700 focus:outline-none">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div v-if="errorMessage" class="p-4 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm flex items-start">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2 mt-0.5 flex-shrink-0" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd" />
+                            </svg>
+                            <span>{{ errorMessage }}</span>
+                        </div>
+                    </div>
+
+                    <!-- MANUAL INPUT MODE -->
+                    <div v-else key="manual" class="space-y-8">
+                        <div class="grid grid-cols-1 gap-6">
+                            <div>
+                                <label class="block text-sm font-semibold text-gray-700 mb-2">Query</label>
+                                <textarea
+                                    v-model="query"
+                                    rows="3"
+                                    class="w-full rounded-lg border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 transition-shadow"
+                                    placeholder="Enter the user query..."
+                                ></textarea>
+                            </div>
+
+                            <div>
+                                <div class="flex justify-between items-center mb-2">
+                                    <label class="block text-sm font-semibold text-gray-700">Reference Texts</label>
                                     <button 
-                                        @click="removeReference(index)" 
-                                        class="mt-2 text-gray-400 hover:text-red-500 focus:outline-none transition-colors"
-                                        title="Remove reference"
+                                        @click="toggleEditMode" 
+                                        class="text-xs font-medium text-indigo-600 hover:text-indigo-800 focus:outline-none"
                                     >
-                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-                                        </svg>
+                                        {{ isEditMode ? 'Switch to List View' : 'Edit Raw Text' }}
                                     </button>
                                 </div>
-                                <button 
-                                    @click="addReference" 
-                                    class="mt-2 inline-flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-800 focus:outline-none"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
-                                    </svg>
-                                    Add Reference
-                                </button>
+
+                                <!-- List View -->
+                                <div v-if="!isEditMode" class="space-y-3">
+                                    <div v-for="(text, index) in referenceTexts" :key="index" :id="'ref-' + index" class="flex items-start space-x-3 transition-colors duration-500 rounded-lg p-1">
+                                        <span class="mt-2 text-xs font-mono text-gray-400 w-4 text-right">{{ index }}.</span>
+                                        <textarea
+                                            v-model="referenceTexts[index]"
+                                            rows="2"
+                                            class="flex-1 rounded-lg border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 transition-shadow"
+                                            placeholder="Enter reference text..."
+                                        ></textarea>
+                                        <button 
+                                            @click="removeReference(index)" 
+                                            class="mt-2 text-gray-400 hover:text-red-500 focus:outline-none transition-colors"
+                                            title="Remove reference"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                            </svg>
+                                        </button>
+                                    </div>
+                                    <button 
+                                        @click="addReference" 
+                                        class="mt-2 inline-flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-800 focus:outline-none"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                                        </svg>
+                                        Add Reference
+                                    </button>
+                                </div>
+
+                                <!-- Edit Mode -->
+                                <div v-else>
+                                    <textarea
+                                        v-model="rawReferenceText"
+                                        rows="6"
+                                        class="w-full rounded-lg border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 transition-shadow font-mono"
+                                        placeholder='"Reference 1",&#10;"Reference 2"'
+                                    ></textarea>
+                                    <p class="mt-2 text-sm text-gray-500">
+                                        <strong>Format:</strong> Each reference in double quotes <code>"..."</code>, separated by a comma <code>,</code> and a new line.
+                                    </p>
+                                </div>
                             </div>
 
-                            <!-- Edit Mode -->
-                            <div v-else>
-                                <textarea
-                                    v-model="rawReferenceText"
-                                    rows="6"
-                                    class="w-full rounded-lg border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 transition-shadow font-mono"
-                                    placeholder='"Reference 1",&#10;"Reference 2"'
-                                ></textarea>
-                                <p class="mt-2 text-sm text-gray-500">
-                                    <strong>Format:</strong> Each reference in double quotes <code>"..."</code>, separated by a comma <code>,</code> and a new line.
-                                </p>
+                            </div>
+
+                        <div class="border-t border-gray-100 pt-8">
+                             <h3 class="text-lg font-medium text-gray-900 mb-4">Responses to Compare</h3>
+                             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <ResponseArea
+                                    label="Raw Text (Response A)"
+                                    v-model="text1"
+                                    :references="referenceTexts"
+                                    placeholder="Paste response A here..."
+                                    @invalid-reference="handleInvalidReference"
+                                />
+                                <ResponseArea
+                                    label="Raw Text (Response B)"
+                                    v-model="text2"
+                                    :references="referenceTexts"
+                                    placeholder="Paste response B here..."
+                                    @invalid-reference="handleInvalidReference"
+                                />
                             </div>
                         </div>
 
-                        </div>
-
-                    <div class="border-t border-gray-100 pt-8">
-                         <h3 class="text-lg font-medium text-gray-900 mb-4">Responses to Compare</h3>
-                         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <ResponseArea
-                                label="Raw Text (Response A)"
-                                v-model="text1"
-                                :references="referenceTexts"
-                                placeholder="Paste response A here..."
-                                @invalid-reference="handleInvalidReference"
-                            />
-                            <ResponseArea
-                                label="Raw Text (Response B)"
-                                v-model="text2"
-                                :references="referenceTexts"
-                                placeholder="Paste response B here..."
-                                @invalid-reference="handleInvalidReference"
-                            />
+                        <div class="flex justify-center pt-6">
+                            <button
+                                @click="submitComparison"
+                                class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
+                            >
+                                Submit Comparison
+                            </button>
                         </div>
                     </div>
-
-                    <div class="flex justify-center pt-6">
-                        <button
-                            @click="submitComparison"
-                            class="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-colors"
-                        >
-                            Submit Comparison
-                        </button>
+                </transition>
+            </div>
+        </div>
+        
+        <!-- RESULTS VIEW -->
+        <div v-else class="p-6 md:p-8">
+            <div class="flex items-center justify-between mb-8">
+                <button @click="goBack" class="text-sm text-gray-500 hover:text-indigo-600 flex items-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                        <path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd" />
+                    </svg>
+                    Back to Inputs
+                </button>
+                <h2 class="text-2xl font-bold text-gray-900">Analysis Results</h2>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Result A -->
+                <div class="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                    <h3 class="text-lg font-bold text-indigo-900 mb-4 border-b border-gray-200 pb-2">Response A</h3>
+                    
+                    <div v-if="loadingA" class="py-10 text-center">
+                        <div class="inline-block w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
+                        <p class="text-sm text-indigo-600 font-medium">Analyzing Response A...</p>
+                    </div>
+                    
+                    <JudgmentDisplay v-else-if="resultA" :data="resultA" />
+                    
+                    <div v-else class="text-center py-10 text-gray-400">
+                        Waiting for analysis...
                     </div>
                 </div>
-            </transition>
+
+                <!-- Result B -->
+                <div class="bg-gray-50 rounded-xl p-6 border border-gray-200">
+                    <h3 class="text-lg font-bold text-indigo-900 mb-4 border-b border-gray-200 pb-2">Response B</h3>
+                    
+                    <div v-if="loadingB" class="py-10 text-center">
+                        <div class="inline-block w-8 h-8 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-3"></div>
+                        <p class="text-sm text-indigo-600 font-medium">Analyzing Response B...</p>
+                    </div>
+                    
+                    <JudgmentDisplay v-else-if="resultB" :data="resultB" />
+                    
+                    <div v-else class="text-center py-10 text-gray-400">
+                        Waiting for analysis...
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
+        </div>
     </div>
     <Notification 
         :show="notification.show" 
