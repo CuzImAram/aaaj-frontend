@@ -35,6 +35,10 @@ const showNotification = (type: 'success' | 'error' | 'info', title: string, mes
     }, 5000);
 };
 
+const handleInvalidReference = (index: number) => {
+    showNotification('error', 'Invalid Reference', `Reference [${index}] does not exist.`);
+};
+
 const handleFileUpload = async (event: Event, fileIndex: 1 | 2) => {
     errorMessage.value = '';
     const target = event.target as HTMLInputElement;
@@ -236,7 +240,7 @@ const findInvalidReferences = (text: string): string[] => {
     const matches = text.matchAll(/\[(\d+)\]/g);
     const invalid: string[] = [];
     for (const match of matches) {
-        const index = parseInt(match[1], 10) - 1;
+        const index = parseInt(match[1], 10);
         if (index < 0 || index >= referenceTexts.value.length) {
             const fullMatch = match[0];
             if (fullMatch) invalid.push(fullMatch);
@@ -379,8 +383,8 @@ const findInvalidReferences = (text: string): string[] => {
 
                             <!-- List View -->
                             <div v-if="!isEditMode" class="space-y-3">
-                                <div v-for="(text, index) in referenceTexts" :key="index" class="flex items-start space-x-3">
-                                    <span class="mt-2 text-xs font-mono text-gray-400 w-4 text-right">{{ index + 1 }}.</span>
+                                <div v-for="(text, index) in referenceTexts" :key="index" :id="'ref-' + index" class="flex items-start space-x-3 transition-colors duration-500 rounded-lg p-1">
+                                    <span class="mt-2 text-xs font-mono text-gray-400 w-4 text-right">{{ index }}.</span>
                                     <textarea
                                         v-model="referenceTexts[index]"
                                         rows="2"
@@ -432,12 +436,14 @@ const findInvalidReferences = (text: string): string[] => {
                                 v-model="text1"
                                 :references="referenceTexts"
                                 placeholder="Paste response A here..."
+                                @invalid-reference="handleInvalidReference"
                             />
                             <ResponseArea
                                 label="Raw Text (Response B)"
                                 v-model="text2"
                                 :references="referenceTexts"
                                 placeholder="Paste response B here..."
+                                @invalid-reference="handleInvalidReference"
                             />
                         </div>
                     </div>

@@ -8,7 +8,7 @@ const props = defineProps<{
   placeholder?: string;
 }>();
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits(['update:modelValue', 'hover-reference', 'leave-reference']);
 
 const isEditing = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
@@ -32,26 +32,68 @@ const renderedText = computed(() => {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 
-  // Replace [n] with highlighted spans
-  // Regex looks for [digits]
-  return text.replace(/\[(\d+)\]/g, (match, number) => {
-    const index = parseInt(number, 10) - 1; // 1-based to 0-based
-    const isValid = index >= 0 && index < props.references.length;
-    const referenceText = isValid ? props.references[index] : 'Reference not found';
-    
-    // Show full reference text as requested
-    const tooltipText = referenceText || '';
+  // Regex looks for brackets containing digits, spaces, and commas
+  return text.replace(/\[([\d\s,]+)\]/g, (fullMatch, innerContent) => {
+    // Check validity of all numbers in this block
+    const numbers = innerContent.match(/\d+/g) || [];
+    const indices = numbers.map(n => parseInt(n, 10));
+    const allValid = indices.length > 0 && indices.every(i => i >= 0 && i < props.references.length);
+    const anyInvalid = indices.some(i => i < 0 || i >= props.references.length);
 
-    const colorClass = isValid ? 'text-blue-600 font-bold cursor-help' : 'text-red-600 font-bold cursor-help';
-    
-    // Tooltip positioning: "bottom corner of the right ]"
-    // We align it to the right (right-0) and put it below (top-full) with a small margin (mt-1)
-    // Use 'inline' instead of 'inline-block' to prevent breaking text flow
-    // Use 'inline' instead of 'inline-block' to prevent breaking text flow
-    // IMPORTANT: No newlines in the template string because whitespace-pre-wrap will render them!
-    return `<span class="group relative inline ${colorClass}">${match}<span class="pointer-events-none absolute top-full right-0 mt-1 w-80 p-3 bg-gray-900 text-white text-xs rounded-md shadow-xl opacity-0 group-hover:opacity-100 transition-opacity z-20 whitespace-normal break-words text-left">${tooltipText}<!-- Arrow pointing up to the right side --><svg class="absolute text-gray-900 h-2 w-4 right-2 bottom-full transform rotate-180" x="0px" y="0px" viewBox="0 0 255 255" xml:space="preserve"><polygon class="fill-current" points="0,0 127.5,127.5 255,0"/></svg></span></span>`;
+    // Container style: Blue if all valid, Red if all invalid? Or just bold default.
+    // User asked for "everything blue" for valid case.
+    let containerClass = 'font-bold';
+    if (allValid) {
+        containerClass += ' text-blue-600';
+    } else if (indices.length > 0 && indices.every(i => i < 0 || i >= props.references.length)) {
+         // Optional: if ALL are invalid, make brackets red too?
+         containerClass += ' text-red-600';
+    }
+
+    // Process the inner content
+    const processedInner = innerContent.replace(/(\d+)/g, (digitMatch: string) => {
+        const index = parseInt(digitMatch, 10);
+        const isValid = index >= 0 && index < props.references.length;
+        
+        let itemClass = 'cursor-pointer hover:underline';
+        
+        // If container is NOT blue (mixed or all invalid), we must color valid items blue and invalid items red explicitly.
+        // If container IS blue (all valid), items inherit blue.
+        if (!allValid) {
+             itemClass += isValid ? ' text-blue-600' : ' text-red-600';
+        }
+        
+        return `<span class="ref-item ${itemClass}" data-index="${index}">${digitMatch}</span>`;
+    });
+
+    return `<span class="${containerClass}">[${processedInner}]</span>`;
   });
 });
+
+const handleClick = (event: MouseEvent) => {
+    const target = event.target as HTMLElement;
+    if (target.classList.contains('ref-item')) {
+        // Prevent edit mode when clicking a citation
+        event.stopPropagation();
+        
+        const index = parseInt(target.dataset.index || '-1', 10);
+        if (index >= 0 && index < props.references.length) {
+            const el = document.getElementById(`ref-${index}`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                // Optional: flash effect
+                el.classList.add('bg-indigo-50');
+                setTimeout(() => el.classList.remove('bg-indigo-50'), 1000);
+            }
+        } else {
+            // Invalid reference
+            emit('invalid-reference', index);
+        }
+    } else {
+        // Normal click => Edit mode
+        enableEdit();
+    }
+};
 
 const updateValue = (event: Event) => {
   const target = event.target as HTMLTextAreaElement;
@@ -72,7 +114,7 @@ const disableEdit = () => {
     <div class="flex justify-between items-center mb-2">
         <label class="block text-sm font-semibold text-gray-700">{{ label }}</label>
         <span class="text-xs text-gray-500">
-            Use <code>[n]</code> to cite reference #n.
+            Use <code>[n]</code> or <code>[x, y]</code> to cite reference #n.
         </span>
     </div>
     
@@ -80,8 +122,8 @@ const disableEdit = () => {
         <!-- View Mode -->
         <div 
             v-if="!isEditing"
-            @click="enableEdit"
-            class="w-full h-full rounded-md border border-gray-300 bg-white p-3 text-gray-600 leading-relaxed whitespace-pre-wrap cursor-text hover:border-indigo-300 transition-colors overflow-y-auto max-h-[500px]"
+            @click="handleClick"
+            class="w-full h-full rounded-md border border-gray-300 bg-white p-3 text-gray-600 leading-relaxed whitespace-pre-wrap break-words overflow-x-hidden cursor-text hover:border-indigo-300 transition-colors overflow-y-auto max-h-[500px]"
             v-html="renderedText || '<span class=\'text-gray-400\'>' + (placeholder || 'Enter text here...') + '</span>'"
         ></div>
 
