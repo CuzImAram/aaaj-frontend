@@ -14,6 +14,8 @@ const text2 = ref('');
 const file1 = ref<File | null>(null);
 const file2 = ref<File | null>(null);
 const errorMessage = ref('');
+const isDragging1 = ref(false);
+const isDragging2 = ref(false);
 
 const handleFileUpload = async (event: Event, fileIndex: 1 | 2) => {
     errorMessage.value = '';
@@ -21,10 +23,27 @@ const handleFileUpload = async (event: Event, fileIndex: 1 | 2) => {
     if (target.files && target.files.length > 0) {
         const file = target.files[0];
         if (file) {
-            if (fileIndex === 1) file1.value = file;
-            else file2.value = file;
+            processFileSelection(file, fileIndex);
         }
     }
+};
+
+const handleDrop = (event: DragEvent, fileIndex: 1 | 2) => {
+    if (fileIndex === 1) isDragging1.value = false;
+    else isDragging2.value = false;
+
+    const files = event.dataTransfer?.files;
+    if (files && files.length > 0) {
+        const file = files[0];
+        if (file) {
+            processFileSelection(file, fileIndex);
+        }
+    }
+};
+
+const processFileSelection = async (file: File, fileIndex: 1 | 2) => {
+    if (fileIndex === 1) file1.value = file;
+    else file2.value = file;
 
     // Auto-process if both files are present
     if (file1.value && file2.value) {
@@ -199,7 +218,13 @@ const submitComparison = () => {
                     <div class="space-y-6">
                         <div class="group relative">
                             <label class="block text-sm font-medium text-gray-700 mb-2">First JSON File</label>
-                            <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-indigo-400 transition-colors">
+                            <div 
+                                class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md transition-colors"
+                                :class="isDragging1 ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400'"
+                                @dragover.prevent="isDragging1 = true"
+                                @dragleave.prevent="isDragging1 = false"
+                                @drop.prevent="(e) => handleDrop(e, 1)"
+                            >
                                 <div class="space-y-1 text-center">
                                     <div class="flex text-sm text-gray-600 justify-center">
                                         <label for="file-upload-1" class="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
@@ -223,7 +248,13 @@ const submitComparison = () => {
 
                         <div class="group relative">
                             <label class="block text-sm font-medium text-gray-700 mb-2">Second JSON File</label>
-                            <div class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-md hover:border-indigo-400 transition-colors">
+                            <div 
+                                class="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-dashed rounded-md transition-colors"
+                                :class="isDragging2 ? 'border-indigo-500 bg-indigo-50' : 'border-gray-300 hover:border-indigo-400'"
+                                @dragover.prevent="isDragging2 = true"
+                                @dragleave.prevent="isDragging2 = false"
+                                @drop.prevent="(e) => handleDrop(e, 2)"
+                            >
                                 <div class="space-y-1 text-center">
                                     <div class="flex text-sm text-gray-600 justify-center">
                                         <label for="file-upload-2" class="relative cursor-pointer bg-white rounded-md font-medium text-indigo-600 hover:text-indigo-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-indigo-500">
