@@ -139,26 +139,46 @@ const toggleEditMode = () => {
         try {
             const content = rawReferenceText.value.trim();
             if (content) {
-                 // Wrap in brackets to parse as JSON array: "A",\n"B" -> ["A", "B"]
-                 const parsed = JSON.parse(`[${content}]`);
-                 if (Array.isArray(parsed) && parsed.every(i => typeof i === 'string')) {
-                     referenceTexts.value = parsed;
-                     isEditMode.value = false;
-                     errorMessage.value = '';
-                 } else {
-                     throw new Error('Invalid format');
+                 // Split by the separator ", followed by newline
+                 // This handles multi-line references as requested
+                 // We use a regex to be safe about whitespace: quote, optional space, comma, optional space, newline
+                 const rawItems = content.split(/",\s*\n/);
+                 
+                 const parsed: string[] = [];
+                 for (let i = 0; i < rawItems.length; i++) {
+                     let item = rawItems[i];
+                     if (!item) continue;
+                     item = item.trim();
+                     
+                     // Clean up start quote
+                     if (item.startsWith('"')) {
+                         item = item.substring(1);
+                     }
+                     
+                     // Clean up end quote (only for the very last item if it didn't have a comma)
+                     // The split consumes the ", for intermediate items
+                     if (i === rawItems.length - 1 && item.endsWith('"')) {
+                         item = item.substring(0, item.length - 1);
+                     }
+                     
+                     parsed.push(item);
                  }
+
+                 referenceTexts.value = parsed;
+                 isEditMode.value = false;
+                 errorMessage.value = '';
             } else {
                 referenceTexts.value = ['', '', ''];
                 isEditMode.value = false;
             }
         } catch (e) {
-            errorMessage.value = 'Invalid reference text format. Expected: "Ref 1",\n"Ref 2"';
+            errorMessage.value = 'Invalid reference text format.';
         }
     } else {
         // Switching from List View to Edit Mode -> Format
+        // User requested NO escaping of internal quotes: "do not mark the raw text with \""
         rawReferenceText.value = referenceTexts.value
-            .map(r => `"${r.replace(/"/g, '\\"')}"`) // Escape quotes
+            .map(r => `"${r}"`) 
             .join(',\n');
         isEditMode.value = true;
     }
