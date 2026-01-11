@@ -4,7 +4,9 @@ import { ref } from 'vue';
 // State
 const mode = ref<'manual' | 'json'>('manual');
 const query = ref('');
-const referenceTexts = ref('');
+const referenceTexts = ref<string[]>(['', '', '']); // Default 3 empty references
+const isEditMode = ref(false);
+const rawReferenceText = ref('');
 const text1 = ref('');
 const text2 = ref('');
 
@@ -30,6 +32,20 @@ const handleFileUpload = async (event: Event, fileIndex: 1 | 2) => {
     }
 };
 
+const removeFile = (fileIndex: 1 | 2) => {
+    if (fileIndex === 1) {
+        file1.value = null;
+        // Reset input value to allow re-selecting the same file
+        const input = document.getElementById('file-upload-1') as HTMLInputElement;
+        if (input) input.value = '';
+    } else {
+        file2.value = null;
+        const input = document.getElementById('file-upload-2') as HTMLInputElement;
+        if (input) input.value = '';
+    }
+    errorMessage.value = '';
+};
+
 const processFiles = async () => {
     try {
         const content1 = await readFile(file1.value!);
@@ -50,14 +66,15 @@ const processFiles = async () => {
         const ref2 = JSON.stringify(json2.references_texts);
 
         if (ref1 !== ref2) {
-             throw new Error('references_texts is not the same');
+             throw new Error('references_texts are not the same');
         }
 
         query.value = json1.query;
-        // Handle if reference_texts is an array or object by stringifying, otherwise just assign
-        referenceTexts.value = typeof json1.references_texts === 'string'
-            ? json1.references_texts
-            : JSON.stringify(json1.references_texts, null, 2);
+        
+        // Assign directly as it's validated to be a list of strings
+        referenceTexts.value = json1.references_texts;
+        // Ensure we have at least 3 or match the length
+        if (referenceTexts.value.length === 0) referenceTexts.value = ['', '', ''];
 
         text1.value = json1.raw_text;
         text2.value = json2.raw_text;
@@ -78,6 +95,14 @@ const validateJson = (json: any, fileName: string) => {
             throw new Error(`Field "${field}" missing in ${fileName}`);
         }
     }
+
+    // Validate references_texts is a List of Strings
+    if (!Array.isArray(json.references_texts)) {
+        throw new Error(`references_texts must be a List in ${fileName}`);
+    }
+    if (!json.references_texts.every((item: any) => typeof item === 'string')) {
+        throw new Error(`references_texts must contain only strings in ${fileName}`);
+    }
 };
 
 const readFile = (file: File): Promise<string> => {
@@ -87,6 +112,45 @@ const readFile = (file: File): Promise<string> => {
         reader.onerror = (e) => reject(e);
         reader.readAsText(file);
     });
+};
+
+const toggleEditMode = () => {
+    if (isEditMode.value) {
+        // Switching from Edit Mode to List View -> Parse
+        try {
+            const content = rawReferenceText.value.trim();
+            if (content) {
+                 // Wrap in brackets to parse as JSON array: "A",\n"B" -> ["A", "B"]
+                 const parsed = JSON.parse(`[${content}]`);
+                 if (Array.isArray(parsed) && parsed.every(i => typeof i === 'string')) {
+                     referenceTexts.value = parsed;
+                     isEditMode.value = false;
+                     errorMessage.value = '';
+                 } else {
+                     throw new Error('Invalid format');
+                 }
+            } else {
+                referenceTexts.value = ['', '', ''];
+                isEditMode.value = false;
+            }
+        } catch (e) {
+            errorMessage.value = 'Invalid reference text format. Expected: "Ref 1",\n"Ref 2"';
+        }
+    } else {
+        // Switching from List View to Edit Mode -> Format
+        rawReferenceText.value = referenceTexts.value
+            .map(r => `"${r.replace(/"/g, '\\"')}"`) // Escape quotes
+            .join(',\n');
+        isEditMode.value = true;
+    }
+};
+
+const addReference = () => {
+    referenceTexts.value.push('');
+};
+
+const removeReference = (index: number) => {
+    referenceTexts.value.splice(index, 1);
 };
 
 const submitComparison = () => {
@@ -101,7 +165,7 @@ const submitComparison = () => {
     <div class="max-w-5xl mx-auto">
       <header class="mb-10 text-center">
         <h1 class="text-4xl font-extrabold text-gray-900 tracking-tight mb-2">Agent Response Comparator</h1>
-        <p class="text-lg text-gray-600">Compare two AI generated responses against a query and reference.</p>
+        <p class="text-lg text-gray-600">Compare two responses against a query and reference.</p>
       </header>
 
       <div class="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
@@ -145,7 +209,14 @@ const submitComparison = () => {
                                         <p class="pl-1">or drag and drop</p>
                                     </div>
                                     <p class="text-xs text-gray-500">JSON up to 10MB</p>
-                                    <p v-if="file1" class="text-sm font-semibold text-green-600 mt-2">Selected: {{ file1.name }}</p>
+                                    <div v-if="file1" class="mt-2 flex items-center justify-center space-x-2">
+                                        <span class="text-sm font-semibold text-green-600">Selected: {{ file1.name }}</span>
+                                        <button @click="removeFile(1)" class="text-red-500 hover:text-red-700 focus:outline-none">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -162,7 +233,14 @@ const submitComparison = () => {
                                         <p class="pl-1">or drag and drop</p>
                                     </div>
                                     <p class="text-xs text-gray-500">JSON up to 10MB</p>
-                                    <p v-if="file2" class="text-sm font-semibold text-green-600 mt-2">Selected: {{ file2.name }}</p>
+                                    <div v-if="file2" class="mt-2 flex items-center justify-center space-x-2">
+                                        <span class="text-sm font-semibold text-green-600">Selected: {{ file2.name }}</span>
+                                        <button @click="removeFile(2)" class="text-red-500 hover:text-red-700 focus:outline-none">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                <path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd" />
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -190,15 +268,62 @@ const submitComparison = () => {
                         </div>
 
                         <div>
-                            <label class="block text-sm font-semibold text-gray-700 mb-2">Reference Texts</label>
-                            <textarea
-                                v-model="referenceTexts"
-                                rows="4"
-                                class="w-full rounded-lg border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 transition-shadow"
-                                placeholder="Enter reference ground truth texts..."
-                            ></textarea>
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="block text-sm font-semibold text-gray-700">Reference Texts</label>
+                                <button 
+                                    @click="toggleEditMode" 
+                                    class="text-xs font-medium text-indigo-600 hover:text-indigo-800 focus:outline-none"
+                                >
+                                    {{ isEditMode ? 'Switch to List View' : 'Edit Raw Text' }}
+                                </button>
+                            </div>
+
+                            <!-- List View -->
+                            <div v-if="!isEditMode" class="space-y-3">
+                                <div v-for="(text, index) in referenceTexts" :key="index" class="flex items-start space-x-3">
+                                    <span class="mt-2 text-xs font-mono text-gray-400 w-4 text-right">{{ index + 1 }}.</span>
+                                    <textarea
+                                        v-model="referenceTexts[index]"
+                                        rows="2"
+                                        class="flex-1 rounded-lg border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 transition-shadow"
+                                        placeholder="Enter reference text..."
+                                    ></textarea>
+                                    <button 
+                                        @click="removeReference(index)" 
+                                        class="mt-2 text-gray-400 hover:text-red-500 focus:outline-none transition-colors"
+                                        title="Remove reference"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                            <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                <button 
+                                    @click="addReference" 
+                                    class="mt-2 inline-flex items-center text-sm font-medium text-indigo-600 hover:text-indigo-800 focus:outline-none"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
+                                    </svg>
+                                    Add Reference
+                                </button>
+                            </div>
+
+                            <!-- Edit Mode -->
+                            <div v-else>
+                                <textarea
+                                    v-model="rawReferenceText"
+                                    rows="6"
+                                    class="w-full rounded-lg border-gray-300 border shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-3 transition-shadow font-mono"
+                                    placeholder='"Reference 1",&#10;"Reference 2"'
+                                ></textarea>
+                                <p class="mt-2 text-sm text-gray-500">
+                                    <strong>Format:</strong> Each reference in double quotes <code>"..."</code>, separated by a comma <code>,</code> and a new line.
+                                </p>
+                            </div>
                         </div>
-                    </div>
+
+                        </div>
 
                     <div class="border-t border-gray-100 pt-8">
                          <h3 class="text-lg font-medium text-gray-900 mb-4">Responses to Compare</h3>
