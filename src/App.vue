@@ -4,14 +4,17 @@ import ResponseArea from './components/ResponseArea.vue';
 import Notification from './components/Notification.vue';
 
 import JudgmentDisplay from './components/JudgmentDisplay.vue';
+import ComparisonDisplay from './components/ComparisonDisplay.vue';
 
 // State
 const mode = ref<'manual' | 'json'>('manual');
 const view = ref<'input' | 'results'>('input'); // View state
 const loadingA = ref(false);
 const loadingB = ref(false);
+const loadingComparison = ref(false);
 const resultA = ref<any>(null);
 const resultB = ref<any>(null);
+const comparisonResult = ref<any>(null);
 
 const query = ref('');
 const referenceTexts = ref<string[]>(['', '', '']); // Default 3 empty references
@@ -219,7 +222,7 @@ const removeReference = (index: number) => {
     referenceTexts.value.splice(index, 1);
 };
 
-const submitComparison = () => {
+const submitComparison = async () => {
     // Validation: Check for invalid references in responses
     const invalidRefs1 = findInvalidReferences(text1.value);
     const invalidRefs2 = findInvalidReferences(text2.value);
@@ -240,12 +243,27 @@ const submitComparison = () => {
     view.value = 'results';
     resultA.value = null;
     resultB.value = null;
+    comparisonResult.value = null;
     loadingA.value = true;
     loadingB.value = true;
+    loadingComparison.value = false;
 
-    // Trigger parallel requests
-    analyzeResponse(text1.value, 'A');
-    analyzeResponse(text2.value, 'B');
+    // Trigger parallel requests for individual analysis
+    // We use Promise.all to wait for both before comparing
+    try {
+        await Promise.all([
+            analyzeResponse(text1.value, 'A'),
+            analyzeResponse(text2.value, 'B')
+        ]);
+
+        // If both results are present, trigger comparison
+        if (resultA.value && resultB.value) {
+            compareJudgments();
+        }
+    } catch (e) {
+        // Individual errors are handled in analyzeResponse
+        console.error("Parallel analysis execution failed", e);
+    }
 };
 
 const analyzeResponse = async (rawText: string, target: 'A' | 'B') => {
@@ -269,7 +287,6 @@ const analyzeResponse = async (rawText: string, target: 'A' | 'B') => {
         }
 
         const data = await response.json();
-        // Backend returns a list, we expect one item for this single-shot request or the first one
         const result = Array.isArray(data) ? data[0] : data;
 
         if (target === 'A') {
@@ -282,6 +299,43 @@ const analyzeResponse = async (rawText: string, target: 'A' | 'B') => {
     } finally {
         if (target === 'A') loadingA.value = false;
         else loadingB.value = false;
+    }
+};
+
+const compareJudgments = async () => {
+    loadingComparison.value = true;
+    
+    // Payload format: [{query, references}, resultA, resultB]
+    const payload = [
+        {
+            query: query.value,
+            references_texts: referenceTexts.value
+        },
+        resultA.value,
+        resultB.value
+    ];
+
+    try {
+        const response = await fetch('http://localhost:5678/webhook/get-data-for-agents-comp', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`Comparison API Error: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        // Backend returns a list, expecting single item
+        comparisonResult.value = Array.isArray(data) ? data[0] : data;
+
+    } catch (error: any) {
+        showNotification('error', 'Comparison Failed', error.message);
+    } finally {
+        loadingComparison.value = false;
     }
 };
 
@@ -321,7 +375,7 @@ const downloadJson = (data: any, filename: string) => {
     <div class="max-w-7xl mx-auto">
       <header class="mb-10 text-center">
         <h1 class="text-4xl font-extrabold text-gray-900 tracking-tight mb-2">Agent Response Comparator</h1>
-        <p class="text-lg text-gray-600">Compare two responses against a query and reference.</p>
+        <p class="text-lg text-gray-600">Compare & judge two responses against a query and reference.</p>
       </header>
 
         <div class="bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden">
@@ -600,7 +654,44 @@ const downloadJson = (data: any, filename: string) => {
                     </div>
                 </div>
             </div>
-        </div>
+
+            <!-- COMPARISON RESULT -->
+            <div v-if="loadingA || loadingB || loadingComparison || comparisonResult" class="mt-12 pt-8 border-t border-gray-200">
+                <div class="flex items-center justify-between mb-8">
+                     <h2 class="text-2xl font-bold text-gray-900">Head-to-Head Comparison</h2>
+                     <button 
+                        v-if="comparisonResult"
+                        @click="downloadJson(comparisonResult, 'comparison_result.json')"
+                        class="text-sm flex items-center text-indigo-600 hover:text-indigo-800 font-medium transition-colors"
+                    >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mr-1" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd" />
+                        </svg>
+                        Download Report
+                    </button>
+                </div>
+
+                <!-- STATE 1: Waiting for A & B -->
+                <div v-if="loadingA || loadingB" class="bg-gray-50 rounded-xl border-2 border-dashed border-gray-300 p-10 text-center flex flex-col items-center justify-center opacity-75">
+                    <div class="flex space-x-2 mb-4">
+                         <div class="w-3 h-3 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0s"></div>
+                         <div class="w-3 h-3 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.2s"></div>
+                         <div class="w-3 h-3 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.4s"></div>
+                    </div>
+                    <h3 class="text-lg font-medium text-gray-600">Waiting for Judgments...</h3>
+                    <p class="text-gray-400 mt-2 text-sm">Comparison will start automatically once Response A and B are analyzed.</p>
+                </div>
+
+                <!-- STATE 2: Comparing -->
+                <div v-else-if="loadingComparison" class="bg-white rounded-xl shadow-lg p-10 text-center">
+                    <div class="inline-block w-10 h-10 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-4"></div>
+                    <h3 class="text-lg font-medium text-gray-900">Comparing Agents...</h3>
+                    <p class="text-gray-500 mt-2">The judge is deciding the winner, please wait.</p>
+                </div>
+
+                <!-- STATE 3: Result -->
+                <ComparisonDisplay v-else-if="comparisonResult" :data="comparisonResult" />
+            </div>
         </div>
     </div>
     <Notification 
@@ -611,6 +702,7 @@ const downloadJson = (data: any, filename: string) => {
         @close="notification.show = false" 
     />
   </div>
+</div>
 </template>
 
 <style>
