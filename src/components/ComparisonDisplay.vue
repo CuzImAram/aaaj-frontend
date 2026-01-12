@@ -26,7 +26,8 @@ const getWinnerText = (winner: string) => {
     const w = winner ? winner.toLowerCase() : '';
     if (w === 'a') return 'Winner: Response A';
     if (w === 'b') return 'Winner: Response B';
-    return 'Tie';
+    if (w === 'n') return 'Tie because the score is to close!';
+    return 'Error';
 };
 
 const overall = computed(() => {
