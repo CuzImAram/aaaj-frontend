@@ -8,7 +8,7 @@ const props = defineProps<{
   placeholder?: string;
 }>();
 
-const emit = defineEmits(['update:modelValue', 'hover-reference', 'leave-reference']);
+const emit = defineEmits(['update:modelValue', 'hover-reference', 'leave-reference', 'invalid-reference']);
 
 const isEditing = ref(false);
 const textareaRef = ref<HTMLTextAreaElement | null>(null);
@@ -36,16 +36,16 @@ const renderedText = computed(() => {
   return text.replace(/\[([\d\s,]+)\]/g, (fullMatch, innerContent) => {
     // Check validity of all numbers in this block
     const numbers = innerContent.match(/\d+/g) || [];
-    const indices = numbers.map(n => parseInt(n, 10));
-    const allValid = indices.length > 0 && indices.every(i => i >= 0 && i < props.references.length);
-    const anyInvalid = indices.some(i => i < 0 || i >= props.references.length);
+    const indices = numbers.map((n: string) => parseInt(n, 10));
+    const allValid = indices.length > 0 && indices.every((i: number) => i >= 0 && i < props.references.length);
+    const anyInvalid = indices.some((i: number) => i < 0 || i >= props.references.length);
 
     // Container style: Blue if all valid, Red if all invalid? Or just bold default.
     // User asked for "everything blue" for valid case.
     let containerClass = 'font-bold';
     if (allValid) {
         containerClass += ' text-blue-600';
-    } else if (indices.length > 0 && indices.every(i => i < 0 || i >= props.references.length)) {
+    } else if (indices.length > 0 && indices.every((i: number) => i < 0 || i >= props.references.length)) {
          // Optional: if ALL are invalid, make brackets red too?
          containerClass += ' text-red-600';
     }
@@ -81,9 +81,19 @@ const handleClick = (event: MouseEvent) => {
             const el = document.getElementById(`ref-${index}`);
             if (el) {
                 el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                // Optional: flash effect
-                el.classList.add('bg-indigo-50');
-                setTimeout(() => el.classList.remove('bg-indigo-50'), 1000);
+                
+                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                
+                const textarea = el.querySelector('textarea');
+                if (textarea) {
+                    // Highlight ONLY the textarea
+                    const highlightClasses = ['bg-blue-50', 'ring-4', 'ring-blue-300', 'transition-colors', 'duration-500'];
+                    textarea.classList.add(...highlightClasses);
+
+                    setTimeout(() => {
+                        textarea.classList.remove(...highlightClasses);
+                    }, 2000);
+                }
             }
         } else {
             // Invalid reference
